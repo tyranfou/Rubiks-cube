@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rubik's cube</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --text: #1d2330;
+    --muted: #5d6576;
+    --border: #d6dae2;
+    --btn: #eef0f4;
+    --btn-hover: #e1e5ec;
+    --accent: #2d5bd7;
+    --accent-text: #ffffff;
+    --cubie: #15171c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181e;
+      --panel: #1f232b;
+      --text: #e7eaf0;
+      --muted: #9aa2b2;
+      --border: #333946;
+      --btn: #2a2f39;
+      --btn-hover: #353b47;
+      --accent: #5b82f0;
+      --accent-text: #ffffff;
+      --cubie: #08090b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181e;
+    --panel: #1f232b;
+    --text: #e7eaf0;
+    --muted: #9aa2b2;
+    --border: #333946;
+    --btn: #2a2f39;
+    --btn-hover: #353b47;
+    --accent: #5b82f0;
+    --accent-text: #ffffff;
+    --cubie: #08090b;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .app {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    max-width: 100%;
+  }
+
+  /* ---------- Scène 3D ---------- */
+  .scene {
+    width: min(480px, calc(100vw - 32px));
+    height: min(480px, calc(100vw - 32px));
+    perspective: 1400px;
+    position: relative;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+  .scene.dragging { cursor: grabbing; }
+  .cube {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform-style: preserve-3d;
+  }
+  .cubie {
+    position: absolute;
+    width: var(--s);
+    height: var(--s);
+    left: calc(var(--s) / -2);
+    top: calc(var(--s) / -2);
+    transform-style: preserve-3d;
+  }
+  .marker {
+    position: absolute;
+    width: var(--s);
+    height: var(--s);
+    left: calc(var(--s) / -2);
+    top: calc(var(--s) / -2);
+    pointer-events: none;
+    backface-visibility: hidden;
+  }
+  .marker svg { display: block; width: 100%; height: 100%; }
+  .face {
+    position: absolute;
+    inset: 0;
+    background: var(--cubie);
+    padding: calc(var(--s) * 0.06);
+  }
+  .sticker {
+    width: 100%;
+    height: 100%;
+    border-radius: calc(var(--s) * 0.12);
+  }
+
+  /* ---------- Panneau ---------- */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  h1 { font-size: 1.15rem; margin: 0; }
+  .moves {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  button {
+    font: inherit;
+    color: var(--text);
+    background: var(--btn);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 0;
+    cursor: pointer;
+  }
+  button:hover { background: var(--btn-hover); }
+  button:active { transform: translateY(1px); }
+  .moves button { font-size: 1.1rem; font-weight: 600; }
+  .actions { display: grid; gap: 8px; }
+  .turns {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .turns button { font-size: 1.15rem; padding: 6px 0; }
+  .actions .primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+  .label {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .history {
+    min-height: 3.2em;
+    max-height: 7.5em;
+    overflow-y: auto;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    word-spacing: 0.15em;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+  }
+  .scramble { font-size: 0.8rem; color: var(--muted); }
+  .hint { font-size: 0.78rem; color: var(--muted); line-height: 1.45; margin: 0; }
+
+  @media (max-width: 820px) {
+    .app { flex-direction: column; }
+    .panel { width: min(480px, calc(100vw - 32px)); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="scene" id="scene" title="Glisser pour tourner le cube — double-clic pour revenir à la vue de départ">
+    <div class="cube" id="cube"></div>
+  </div>
+
+  <div class="panel">
+    <h1>Rubik's cube</h1>
+    <div class="moves" id="moves"></div>
+    <div class="actions">
+      <div>
+        <div class="label">Tourner le cube entier d'un quart de tour</div>
+        <div class="turns" id="turns"></div>
+      </div>
+      <button id="undo">Annuler le dernier mouvement</button>
+      <button id="scramble" class="primary">Mélanger</button>
+      <button id="solve">Résoudre (afficher la solution)</button>
+      <button id="reset">Cube résolu</button>
+    </div>
+    <div>
+      <div class="label">Mouvements joués (<span id="count">0</span>)</div>
+      <div class="history" id="history"></div>
+      <div class="scramble" id="scrambleText"></div>
+    </div>
+    <div id="solutionBox" hidden>
+      <div class="label">Solution (<span id="solutionCount">0</span> quarts de tour)</div>
+      <div class="history" id="solution"></div>
+    </div>
+    <p class="hint">
+      Les lettres désignent les faces telles qu'elles sont affichées (repères sur les centres).<br>
+      Glisser horizontalement : rotation autour de l'axe vertical du cube ; verticalement : autour de l'axe passant par les faces latérales. Chaque changement d'orientation est noté x, y ou z. Double-clic pour revenir à la vue de départ.<br>
+      Clavier : U L R D F B, avec Maj pour le sens inverse ; flèches pour tourner le cube d'un quart de tour ; Retour arrière pour annuler.
+    </p>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- Paramètres ----------
+  const PRIME = "′";
+  const SQUARE = "²";
+  const DURATION = 180;          // durée d'un quart de tour (ms)
+  const VIEW_DURATION = 220;     // durée d'un recalage de la vue (ms)
+  const SCRAMBLE_LENGTH = 25;
+  const DIAGONAL_MIN = 30;       // zone interdite : 45° ± 15° (en degrés)
+  const DIAGONAL_MAX = 60;
+
+  // Repère logique : x vers la droite (R), y vers le haut (U), z vers l'avant (F).
+  const NORMALS = {
+    U: [0, 1, 0], D: [0, -1, 0],
+    R: [1, 0, 0], L: [-1, 0, 0],
+    F: [0, 0, 1], B: [0, 0, -1],
+  };
+  const COLORS = {
+    U: "#ffd500", // jaune
+    D: "#ffffff", // blanc
+    F: "#009b48", // vert
+    B: "#0046ad", // bleu
+    R: "#b71234", // rouge
+    L: "#ff5800", // orange
+  };
+  // Orientation CSS de chaque face d'un petit cube (CSS : y vers le bas).
+  const FACE_CSS = {
+    U: "rotateX(90deg)", D: "rotateX(-90deg)",
+    R: "rotateY(90deg)", L: "rotateY(-90deg)",
+    F: "", B: "rotateY(180deg)",
+  };
+  // Pour chaque repère, la direction relative qui sert de « haut » à la lettre.
+  const MARKER_UP = { R: "U", L: "U", F: "U", B: "U", U: "B", D: "F" };
+
+  const scene = document.getElementById("scene");
+  const cubeEl = document.getElementById("cube");
+
+  let S = 0;            // taille d'un petit cube (px)
+  let cubies = [];
+  let markers = {};
+  let queue = [];
+  let animating = false;
+  let generation = 0;   // invalide une animation en cours lors d'un reset/mélange
+  let history = [];     // entrées { type: "move" | "rot", label, tokens, ... }
+  let scrambleSeq = [];
+
+  // ---------- Algèbre ----------
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const neg = v => v.map(a => -a);
+  const mulMV = (M, v) => M.map(row => dot(row, v));
+  const mulMM = (A, B) => A.map(row => [0, 1, 2].map(j => row[0] * B[0][j] + row[1] * B[1][j] + row[2] * B[2][j]));
+  const transpose = M => [0, 1, 2].map(i => [0, 1, 2].map(j => M[j][i]));
+  const columns = (a, b, c) => [0, 1, 2].map(i => [a[i], b[i], c[i]]);
+  const identity = () => [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const toCss = d => [d[0], -d[1], d[2]];
+
+  // Rotation d'angle t autour de l'axe unitaire n (formule de Rodrigues).
+  function rotation(n, t) {
+    const c = Math.cos(t), s = Math.sin(t), k = 1 - c;
+    const [x, y, z] = n;
+    return [
+      [c + x * x * k,     x * y * k - z * s, x * z * k + y * s],
+      [y * x * k + z * s, c + y * y * k,     y * z * k - x * s],
+      [z * x * k - y * s, z * y * k + x * s, c + z * z * k],
+    ];
+  }
+  const roundM = M => M.map(row => row.map(Math.round));
+
+  // Axe et angle d'une rotation (pour animer la vue d'une orientation à une autre).
+  function axisAngle(Q) {
+    const t = Math.acos(Math.max(-1, Math.min(1, (Q[0][0] + Q[1][1] + Q[2][2] - 1) / 2)));
+    if (t < 1e-6) return { n: [1, 0, 0], t: 0 };
+    let n = [Q[2][1] - Q[1][2], Q[0][2] - Q[2][0], Q[1][0] - Q[0][1]];
+    if (Math.hypot(...n) < 1e-3) {
+      // Demi-tour : l'axe est une colonne de (Q + I) / 2.
+      const B = Q.map((row, i) => row.map((v, j) => (v + (i === j ? 1 : 0)) / 2));
+      const k = [0, 1, 2].reduce((b, i) => (B[i][i] > B[b][b] ? i : b), 0);
+      n = [B[0][k], B[1][k], B[2][k]];
+    }
+    const l = Math.hypot(...n);
+    return { n: n.map(v => v / l), t };
+  }
+
+  // ---------- Notation ----------
+  // Un mouvement « X » est un quart de tour horaire vu de l'extérieur de la face,
+  // donc une rotation de -90° autour de la normale sortante ; « X′ » est +90°.
+  function parseMove(m) {
+    const sign = m.length > 1 ? 1 : -1;
+    return { n: NORMALS[m[0]], angle: sign * Math.PI / 2 };
+  }
+  const invert = t => (t.endsWith(PRIME) ? t[0] : t[0] + PRIME);
+
+  // Regroupe les quarts de tour consécutifs d'une même lettre (X X → X², X X′ → rien).
+  function reduce(tokens) {
+    const stack = [];
+    for (const t of tokens) {
+      const q = t.endsWith(PRIME) ? 3 : 1;
+      const top = stack[stack.length - 1];
+      if (top && top.l === t[0]) {
+        top.q = (top.q + q) % 4;
+        if (top.q === 0) stack.pop();
+      } else {
+        stack.push({ l: t[0], q });
+      }
+    }
+    return stack.map(({ l, q }) => l + ["", "", SQUARE, PRIME][q]);
+  }
+
+  // Rotations du cube entier, exprimées dans le repère de la vue :
+  // x comme R, y comme U, z comme F.
+  const TOKENS = {};
+  for (const [l, n] of [["x", [1, 0, 0]], ["y", [0, 1, 0]], ["z", [0, 0, 1]]]) {
+    TOKENS[l] = roundM(rotation(n, -Math.PI / 2));
+    TOKENS[l + PRIME] = roundM(rotation(n, Math.PI / 2));
+  }
+
+  // Plus courte suite de x, y, z (et inverses) qui réalise la rotation G.
+  function rotationWord(G) {
+    const key = M => M.flat().join(",");
+    const goal = key(G);
+    if (goal === key(identity())) return [];
+    const seen = new Set([key(identity())]);
+    let layer = [{ M: identity(), w: [] }];
+    while (layer.length) {
+      const next = [];
+      for (const { M, w } of layer)
+        for (const t in TOKENS) {
+          const N = mulMM(TOKENS[t], M), k = key(N);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          if (k === goal) return w.concat(t);
+          next.push({ M: N, w: w.concat(t) });
+        }
+      layer = next;
+    }
+    return [];
+  }
+
+  // ---------- Orientation affichée ----------
+  // Le « cadre » donne, en coordonnées du cube, les directions vues à droite, en haut et devant.
+  const DIRS = Object.values(NORMALS);
+  function computeFrame(V) {
+    const scr = d => mulMV(V, toCss(d));
+    const F = DIRS.reduce((b, d) => (scr(d)[2] > scr(b)[2] ? d : b));
+    const U = DIRS.filter(d => dot(d, F) === 0).reduce((b, d) => (scr(d)[1] < scr(b)[1] ? d : b));
+    return { R: cross(U, F), U, F };
+  }
+  const frameMatrix = fr => columns(fr.R, fr.U, fr.F);
+  const relVec = (fr, l) =>
+    ({ R: fr.R, U: fr.U, F: fr.F, L: neg(fr.R), D: neg(fr.U), B: neg(fr.F) })[l];
+  const faceAt = (fr, l) => {
+    const v = relVec(fr, l);
+    return Object.keys(NORMALS).find(f => dot(NORMALS[f], v) === 1);
+  };
+
+  // ---------- Rendu ----------
+  function matrix3d(cols, t) {
+    const a = [];
+    for (const c of cols) a.push(c[0], c[1], c[2], 0);
+    a.push(t[0], t[1], t[2], 1);
+    return `matrix3d(${a.join(",")})`;
+  }
+  // Matrice CSS d'un petit cube : on conjugue par diag(1,-1,1) pour passer au repère CSS.
+  function cssMatrix(O, p) {
+    const sg = [1, -1, 1];
+    const cols = [0, 1, 2].map(j => [0, 1, 2].map(i => O[i][j] * sg[i] * sg[j]));
+    return matrix3d(cols, [p[0] * S, -p[1] * S, p[2] * S]);
+  }
+  const render = c => { c.el.style.transform = cssMatrix(c.O, c.pos); };
+
+  // Repère posé sur le centre de chaque face : lettre + flèche dans le sens horaire.
+  function markerSvg(letter) {
+    const arc = "M31 17 A38 38 0 1 1 31 83";
+    const head = "23.2,78.5 37.1,78.4 30.1,90.6";
+    return `<svg viewBox="0 0 100 100" aria-hidden="true">
+      <path d="${arc}" fill="none" stroke="#000" stroke-opacity=".55" stroke-width="10" stroke-linecap="round"/>
+      <polygon points="${head}" fill="#000" fill-opacity=".55" stroke="#000" stroke-opacity=".55" stroke-width="4" stroke-linejoin="round"/>
+      <path d="${arc}" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+      <polygon points="${head}" fill="#fff"/>
+      <text x="50" y="52" text-anchor="middle" dominant-baseline="central"
+        font-family="system-ui, sans-serif" font-weight="700" font-size="40"
+        fill="#fff" stroke="#000" stroke-opacity=".6" stroke-width="5" paint-order="stroke">${letter}</text>
+    </svg>`;
+  }
+
+  function renderMarkers(fr) {
+    for (const l in markers) {
+      const n = relVec(fr, l), up = relVec(fr, MARKER_UP[l]);
+      const cols = [toCss(cross(up, n)), toCss(neg(up)), toCss(n)];
+      markers[l].style.transform = matrix3d(cols, toCss(n).map(v => v * (1.5 * S + 1)));
+    }
+  }
+
+  function buildCube() {
+    generation++;
+    queue = [];
+    animating = false;
+    cubeEl.innerHTML = "";
+    cubies = [];
+    for (let x = -1; x <= 1; x++)
+      for (let y = -1; y <= 1; y++)
+        for (let z = -1; z <= 1; z++) {
+          if (x === 0 && y === 0 && z === 0) continue;
+          const el = document.createElement("div");
+          el.className = "cubie";
+          for (const f in NORMALS) {
+            const face = document.createElement("div");
+            face.className = "face";
+            face.style.transform = `${FACE_CSS[f]} translateZ(calc(var(--s) / 2))`;
+            if (dot(NORMALS[f], [x, y, z]) === 1) {
+              const st = document.createElement("div");
+              st.className = "sticker";
+              st.style.background = COLORS[f];
+              face.appendChild(st);
+            }
+            el.appendChild(face);
+          }
+          cubeEl.appendChild(el);
+          const c = { el, pos: [x, y, z], O: identity() };
+          cubies.push(c);
+          render(c);
+        }
+    markers = {};
+    for (const l of ["U", "D", "R", "L", "F", "B"]) {
+      const m = document.createElement("div");
+      m.className = "marker";
+      m.innerHTML = markerSvg(l);
+      cubeEl.appendChild(m);
+      markers[l] = m;
+    }
+  }
+
+  function resize() {
+    const w = scene.clientWidth;
+    S = Math.round(w / 5.2);
+    cubeEl.style.setProperty("--s", S + "px");
+    cubies.forEach(render);
+    renderMarkers(computeFrame(view));
+  }
+
+  // ---------- Mouvements des faces (en coordonnées absolues du cube) ----------
+  const layerOf = n => cubies.filter(c => dot(c.pos, n) === 1);
+
+  function applyInstant(m) {
+    const { n, angle } = parseMove(m);
+    const R = roundM(rotation(n, angle));
+    for (const c of layerOf(n)) {
+      c.pos = mulMV(R, c.pos);
+      c.O = mulMM(R, c.O);
+      render(c);
+    }
+  }
+
+  function animate(m, done) {
+    const gen = generation;
+    const { n, angle } = parseMove(m);
+    const layer = layerOf(n);
+    const start = performance.now();
+    function frameStep(now) {
+      if (gen !== generation) return;
+      const u = Math.min(1, (now - start) / DURATION);
+      const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      if (u < 1) {
+        const R = rotation(n, angle * e);
+        for (const c of layer) c.el.style.transform = cssMatrix(mulMM(R, c.O), mulMV(R, c.pos));
+        requestAnimationFrame(frameStep);
+      } else {
+        const R = roundM(rotation(n, angle));
+        for (const c of layer) {
+          c.pos = mulMV(R, c.pos);
+          c.O = mulMM(R, c.O);
+          render(c);
+        }
+        done();
+      }
+    }
+    requestAnimationFrame(frameStep);
+  }
+
+  function pump() {
+    if (animating || queue.length === 0) return;
+    animating = true;
+    animate(queue.shift(), () => { animating = false; pump(); });
+  }
+
+  // Un bouton désigne une face telle qu'elle est affichée : on la traduit en face absolue.
+  function play(rel) {
+    if (viewAnimating || drag) return;
+    const abs = faceAt(frame, rel[0]) + rel.slice(1);
+    history.push({ type: "move", label: rel, tokens: [rel], abs });
+    queue.push(abs);
+    showHistory();
+    pump();
+  }
+
+  function undo() {
+    if (viewAnimating || drag || history.length === 0) return;
+    const e = history.pop();
+    if (e.type === "move") {
+      queue.push(invert(e.abs));
+      pump();
+    } else {
+      animateView(e.viewBefore, () => { frame = e.frameBefore; settledView = view; });
+    }
+    showHistory();
+  }
+
+  function scramble() {
+    buildCube();
+    resetView();
+    resize();
+    const faces = Object.keys(NORMALS);
+    const seq = [];
+    let prev = "";
+    while (seq.length < SCRAMBLE_LENGTH) {
+      const f = faces[Math.floor(Math.random() * 6)];
+      if (f === prev) continue;
+      prev = f;
+      seq.push(Math.random() < 0.5 ? f : f + PRIME);
+    }
+    // Une suite de quarts de tour part du cube résolu : le résultat est toujours solvable.
+    // Le mélange est joué dans la vue de départ, où lettres relatives et absolues coïncident.
+    seq.forEach(applyInstant);
+    scrambleSeq = seq;
+    history = [];
+    showHistory();
+    document.getElementById("scrambleText").textContent =
+      "Mélange (jaune en haut, vert devant) : " + seq.join(" ");
+  }
+
+  function reset() {
+    buildCube();
+    resetView();
+    resize();
+    scrambleSeq = [];
+    history = [];
+    showHistory();
+    document.getElementById("scrambleText").textContent = "";
+  }
+
+  // Solution = mélange puis historique (rotations comprises), inversés et lus à l'envers.
+  // Elle se joue à partir de la vue actuelle.
+  function solution() {
+    const all = scrambleSeq.concat(...history.map(e => e.tokens));
+    return reduce(all.reverse().map(invert));
+  }
+
+  function showSolution() {
+    const sol = solution();
+    const faceQuarters = sol.reduce((n, m) =>
+      n + (m[0] === m[0].toUpperCase() ? (m.endsWith(SQUARE) ? 2 : 1) : 0), 0);
+    document.getElementById("solution").textContent =
+      sol.length ? sol.join(" ") : "Le cube est déjà résolu.";
+    document.getElementById("solutionCount").textContent = faceQuarters;
+    document.getElementById("solutionBox").hidden = false;
+  }
+
+  function showHistory() {
+    document.getElementById("solutionBox").hidden = true;
+    const box = document.getElementById("history");
+    box.textContent = history.map(e => e.label).join(" ");
+    box.scrollTop = box.scrollHeight;
+    document.getElementById("count").textContent = history.filter(e => e.type === "move").length;
+  }
+
+  // ---------- Vue (rotation à la souris) ----------
+  const deg = Math.PI / 180;
+  const rotX = t => [[1, 0, 0], [0, Math.cos(t), -Math.sin(t)], [0, Math.sin(t), Math.cos(t)]];
+  const rotY = t => [[Math.cos(t), 0, Math.sin(t)], [0, 1, 0], [-Math.sin(t), 0, Math.cos(t)]];
+  const initialView = () => mulMM(rotX(-25 * deg), rotY(-30 * deg));
+  let view = initialView();
+  let settledView = view;           // vue au dernier relâchement
+  let frame = computeFrame(view);   // orientation qui sert à lire les boutons
+  let viewAnimating = false;
+
+  function resetView() {
+    view = initialView();
+    settledView = view;
+    frame = computeFrame(view);
+    renderView();
+  }
+
+  function orthonormalize(M) {
+    // Gram-Schmidt sur les colonnes pour éviter la dérive numérique.
+    const col = j => [M[0][j], M[1][j], M[2][j]];
+    const norm = v => { const l = Math.hypot(...v); return v.map(x => x / l); };
+    const a = norm(col(0));
+    let b = col(1); const d = dot(a, b); b = norm(b.map((x, i) => x - d * a[i]));
+    return columns(a, b, cross(a, b));
+  }
+
+  function renderView() {
+    cubeEl.style.transform = matrix3d([0, 1, 2].map(j => [view[0][j], view[1][j], view[2][j]]), [0, 0, 0]);
+    renderMarkers(computeFrame(view));
+  }
+
+  function animateView(target, done) {
+    viewAnimating = true;
+    const from = view;
+    const { n, t } = axisAngle(mulMM(target, transpose(from)));
+    const start = performance.now();
+    function step(now) {
+      const u = Math.min(1, (now - start) / VIEW_DURATION);
+      const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+      view = u < 1 ? mulMM(rotation(n, t * e), from) : target;
+      renderView();
+      if (u < 1) requestAnimationFrame(step);
+      else { viewAnimating = false; done(); }
+    }
+    requestAnimationFrame(step);
+  }
+
+  // Après un recalage : si les faces affichées ont changé, on note la rotation x/y/z.
+  function settle() {
+    const nf = computeFrame(view);
+    const word = rotationWord(mulMM(transpose(frameMatrix(nf)), frameMatrix(frame)));
+    if (word.length) {
+      history.push({ type: "rot", label: reduce(word).join(" "), tokens: word,
+                     viewBefore: settledView, frameBefore: frame });
+      showHistory();
+    }
+    frame = nf;
+    settledView = view;
+  }
+
+  // Rotation d'angle t autour de l'axe k (0, 1 ou 2) du cube, en coordonnées CSS.
+  const rotAxis = (k, t) => rotation([0, 1, 2].map(i => (i === k ? 1 : 0)), t);
+  // Axe du cube dont l'image à l'écran est la plus proche de la ligne `row`
+  // (0 = horizontale, 1 = verticale).
+  const closestAxis = row => [0, 1, 2].reduce((best, k) =>
+    Math.abs(view[row][k]) > Math.abs(view[row][best]) ? k : best, 0);
+
+  // Angle (entre 0° et 90°) entre la direction du regard et les faces qui tournent
+  // autour de l'axe k ; vers 45°, on ne sait plus quelle face est devant.
+  function diagonalAngle(V, k) {
+    const w = [V[0][k], V[1][k], V[2][k]];
+    const p = [-w[2] * w[0], -w[2] * w[1], 1 - w[2] * w[2]];
+    if (Math.hypot(...p) < 0.2) return null;
+    const [a, b] = [0, 1, 2].filter(j => j !== k);
+    const along = j => p[0] * V[0][j] + p[1] * V[1][j] + p[2] * V[2][j];
+    const ang = Math.atan2(along(b), along(a)) / deg;
+    return ((ang % 90) + 90) % 90;
+  }
+
+  // Rotation à ajouter autour de l'axe k pour sortir de la zone 30°–60°.
+  function escapeDiagonal(k) {
+    const a = diagonalAngle(view, k);
+    if (a === null || a <= DIAGONAL_MIN || a >= DIAGONAL_MAX) return 0;
+    const target = a < 45 ? DIAGONAL_MIN : DIAGONAL_MAX;
+    const d = (target - a) * deg;
+    const err = t => Math.abs(diagonalAngle(mulMM(view, rotAxis(k, t)), k) - target);
+    return err(d) < err(-d) ? d : -d;
+  }
+
+  // Le sens du glissement est fixé au début du geste (après quelques pixels) :
+  // horizontal → rotation autour de l'axe du cube le plus vertical,
+  // vertical → rotation autour de l'axe passant par les faces latérales.
+  const LOCK_THRESHOLD = 6;
+  let drag = null;
+  scene.addEventListener("pointerdown", e => {
+    if (viewAnimating) return;
+    drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, mode: null };
+    scene.setPointerCapture(e.pointerId);
+    scene.classList.add("dragging");
+  });
+  scene.addEventListener("pointermove", e => {
+    if (!drag) return;
+    if (!drag.mode) {
+      const tx = e.clientX - drag.x0, ty = e.clientY - drag.y0;
+      if (Math.hypot(tx, ty) < LOCK_THRESHOLD) return;
+      drag.mode = Math.abs(tx) >= Math.abs(ty) ? "h" : "v";
+      drag.axis = closestAxis(drag.mode === "h" ? 1 : 0);
+    }
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    const k = drag.axis, step = 0.5 * deg;
+    const t = drag.mode === "h"
+      ? dx * step * Math.sign(view[1][k])
+      : -dy * step * Math.sign(view[0][k]);
+    view = orthonormalize(mulMM(view, rotAxis(k, t)));
+    renderView();
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    scene.classList.remove("dragging");
+    if (!d.mode) return;
+    const t = escapeDiagonal(d.axis);
+    if (t) animateView(mulMM(view, rotAxis(d.axis, t)), settle);
+    else settle();
+  };
+  scene.addEventListener("pointerup", endDrag);
+  scene.addEventListener("pointercancel", endDrag);
+  scene.addEventListener("dblclick", () => {
+    if (!viewAnimating && !drag) animateView(initialView(), settle);
+  });
+
+  // Quart de tour du cube entier : ← → autour de l'axe vertical (y′, y),
+  // ↑ ↓ autour de l'axe des faces latérales (x, x′).
+  // Pour chaque flèche : l'axe, et la face qui doit venir devant.
+  const TURNS = {
+    ArrowLeft:  { axis: "U", front: fr => fr.R },        // y
+    ArrowRight: { axis: "U", front: fr => neg(fr.R) },   // y′
+    ArrowUp:    { axis: "R", front: fr => neg(fr.U) },   // x
+    ArrowDown:  { axis: "R", front: fr => fr.U },        // x′
+  };
+  function turnView(key) {
+    if (viewAnimating || drag) return;
+    const { axis, front } = TURNS[key];
+    const a = toCss(relVec(frame, axis)), want = front(frame);
+    const target = [Math.PI / 2, -Math.PI / 2]
+      .map(t => mulMM(view, rotation(a, t)))
+      .find(V => dot(computeFrame(V).F, want) === 1);
+    animateView(target, settle);
+  }
+
+  // ---------- Boutons et clavier ----------
+  const movesEl = document.getElementById("moves");
+  for (const f of ["U", "L", "R", "D", "F", "B"]) {
+    for (const m of [f, f + PRIME]) {
+      const b = document.createElement("button");
+      b.textContent = m;
+      b.addEventListener("click", () => play(m));
+      movesEl.appendChild(b);
+    }
+  }
+  const turnsEl = document.getElementById("turns");
+  for (const [key, text, title] of [
+    ["ArrowLeft", "←", "Vers la gauche (y)"],
+    ["ArrowRight", "→", "Vers la droite (y′)"],
+    ["ArrowUp", "↑", "Vers le haut (x)"],
+    ["ArrowDown", "↓", "Vers le bas (x′)"],
+  ]) {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.title = title;
+    b.addEventListener("click", () => turnView(key));
+    turnsEl.appendChild(b);
+  }
+  document.getElementById("undo").addEventListener("click", undo);
+  document.getElementById("scramble").addEventListener("click", scramble);
+  document.getElementById("solve").addEventListener("click", showSolution);
+  document.getElementById("reset").addEventListener("click", reset);
+
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Backspace") { e.preventDefault(); undo(); return; }
+    if (TURNS[e.key]) { e.preventDefault(); turnView(e.key); return; }
+    const f = e.key.toUpperCase();
+    if (f.length === 1 && NORMALS[f]) {
+      e.preventDefault();
+      play(e.shiftKey ? f + PRIME : f);
+    }
+  });
+
+  window.addEventListener("resize", resize);
+
+  buildCube();
+  resize();
+  renderView();
+  showHistory();
+})();
+</script>
+</body>
+</html>
